@@ -1,0 +1,121 @@
+#include <WiFi.h>
+#include "DHT.h"
+#include "Adafruit_MQTT.h"
+#include "Adafruit_MQTT_Client.h"
+#include "BluetoothSerial.h"
+BluetoothSerial SerialBT;
+/* ---------- WIFI ---------- */
+#define WIFI_SSID       "TRIANGLES3.0"
+#define WIFI_PASSWORD   "Podapanni"
+
+/* ---------- ADAFRUIT IO ---------- */
+#define AIO_SERVER      "io.adafruit.com"
+#define AIO_SERVERPORT  1883
+#define AIO_USERNAME    "landslide0404"
+#define AIO_KEY         "adafruitid"
+
+/* ---------- SENSOR PINS ---------- */
+#define DHTPIN 19
+#define DHTTYPE DHT11
+#define VIBRATION_PIN 18
+#define SOIL_PIN 33
+
+DHT dht(DHTPIN, DHTTYPE);
+
+/* ---------- MQTT ---------- */
+WiFiClient client;
+Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT,
+                          AIO_USERNAME, AIO_KEY);
+
+/* ---------- FEEDS ---------- */
+Adafruit_MQTT_Publish temperatureFeed =
+  Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/temperature");
+
+Adafruit_MQTT_Publish vibrationFeed =
+  Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/vibration");
+
+Adafruit_MQTT_Publish soilFeed =
+  Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/soil");
+Adafruit_MQTT_Publish rains =
+  Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/rain");
+Adafruit_MQTT_Publish statuss =
+  Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/status");
+
+/* ---------- MQTT CONNECT ---------- */
+void MQTT_connect() {
+  if (mqtt.connected()) return;
+
+  Serial.print("Connecting to Adafruit IO...");
+  int8_t ret;
+
+  while ((ret = mqtt.connect()) != 0) {
+    Serial.println(mqtt.connectErrorString(ret));
+    Serial.println("Retrying in 5 seconds...");
+    mqtt.disconnect();
+    delay(5000);
+  }
+  Serial.println("Connected!");
+}
+
+void setup() {
+  Serial.begin(115200);
+  SerialBT.begin("TX");
+  pinMode(VIBRATION_PIN, INPUT);
+  dht.begin();
+
+  Serial.print("Connecting to WiFi");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi Connected");
+}
+
+void loop() {
+  MQTT_connect();
+
+  float temperature = dht.readTemperature();
+  int soil = analogRead(SOIL_PIN);
+  int rain = analogRead(34);
+
+  unsigned long vibrationPulse = pulseIn(VIBRATION_PIN, HIGH, 100000);
+  int vibration = (vibrationPulse > 200) ? 1 : 0;
+
+  Serial.println("Sending to Adafruit IO");
+  Serial.print("Temp: "); Serial.println(temperature);
+  Serial.print("Vibration: "); Serial.println(vibration);
+  Serial.print("Soil: "); Serial.println(soil);
+
+  temperatureFeed.publish((float)temperature);   // ✅ FIXED
+  delay(3000);   // 2 seconds
+  vibrationFeed.publish((int32_t)vibration);     // ✅ FIXED
+  delay(3000);   // 2 seconds
+  soilFeed.publish((int32_t)soil);                // ✅ FIXED
+  delay(3000);   // 2 seconds
+  rains.publish((int32_t)rain);                // ✅ FIXED
+  delay(3000);   // 2 seconds
+
+  if (vibration==1) {
+    Serial.println("⚠️ Landslide due to EARTHQUAKE");
+    statuss.publish("⚠️ Landslide due to EARTHQUAKE");   
+    SerialBT.println("1");             // ✅ FIXED
+  } 
+  else if (temperature < 26) {
+    Serial.println("⚠️ Landslide due to MEDIUM RAIN");
+    statuss.publish("⚠️ Landslide due to MEDIUM RAIN");   
+    SerialBT.println("2");             // ✅ FIXED
+  } 
+  else if (soil <= 100) {
+    Serial.println("⚠️ Landslide due to HEAVY RAIN");
+    statuss.publish("⚠️ Landslide due to HEAVY RAIN");   
+    SerialBT.println("3");             // ✅ FIXED
+  }
+
+  if(vibration==0&&temperature > 26&&soil > 100) {
+    Serial.println("NORMAL");
+    statuss.publish("NORMAL");   
+    SerialBT.println("3");             // ✅ FIXED
+  }
+  
+}
